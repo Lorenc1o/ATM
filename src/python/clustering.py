@@ -37,46 +37,62 @@ grid2["intersections_per_area"] = grid["intersection_count"]
 
 # Prepare the data for clustering
 X = np.column_stack([
-    grid2.geometry.centroid.x,#/grid2.geometry.centroid.x.max(),
-    grid2.geometry.centroid.y,#/grid2.geometry.centroid.y.max(),
-    grid2["intersections_per_area"]/grid2["intersections_per_area"].max()
+    grid2.geometry.centroid.x,
+    grid2.geometry.centroid.y,
+    1+grid2["intersections_per_area"]/grid2["intersections_per_area"].max()
 ])
+
+# 1. Get the min and max values
+min_x, min_y = X[:, 0].min(), X[:, 1].min()
+max_x, max_y = X[:, 0].max(), X[:, 1].max()
+
+# 2. Compute the ranges
+range_x = max_x - min_x
+range_y = max_y - min_y
+
+# 3. Determine the larger range
+max_range = max(range_x, range_y)
+
+# 4. Scale x and y
+X[:, 0] = (X[:, 0] - min_x) / max_range
+X[:, 1] = (X[:, 1] - min_y) / max_range
 
 # Perform clustering with KMeans
 n_clusters = 5
-clustering = KMeans(n_clusters=n_clusters).fit(X)
+clustering = KMeans(n_clusters=10).fit(X)
+grid["cluster_id_kmeans"] = clustering.labels_
 
 # Perform clustering with DBSCAN
-clustering2 = DBSCAN(eps=0.02, min_samples=10).fit(X)
-
-# Assign the cluster labels back to the grid dataframe
-grid["cluster_id_kmeans"] = clustering.labels_
-grid["cluster_id_dbscan"] = clustering2.labels_
+epss = [0.01, 0.02, 0.03, 0.04, 0.05]
+min_samples = [3, 4, 5, 6, 7, 8, 9, 10]
+for eps in epss:
+    for min_sample in min_samples:
+        clustering = DBSCAN(eps=eps, min_samples=min_sample).fit(X)
+        grid[f"cluster_id_dbscan_{eps}_{min_sample}"] = clustering.labels_
 
 # Perform clustering with AgglomerativeClustering
-
 def custom_distance(X):
     # Extract the spatial and non-spatial features
     spatial_features = X[:, :2]
     non_spatial_features = X[:, 2]
 
-    # Convert spatial features to UTM coordinates
-    #spatial_features = np.array([lonlat_to_utm(lon, lat) for lon, lat in spatial_features])
-
     # Compute the Euclidean distances between all pairs of spatial features
-    euclidean_distances = cdist(spatial_features, spatial_features) + 1e-6
+    euclidean_distances = cdist(spatial_features, spatial_features)
     
     # Normalize the distances
-    euclidean_distances = euclidean_distances/euclidean_distances.max()
+    #euclidean_distances = euclidean_distances/euclidean_distances.max()
 
+    # Divide the distances by the minimum sector size
     euclidean_distances = euclidean_distances/min_sector_size
 
-    # Compute the similarities using your function
-    # similarities = (1/euclidean_distances) ** (non_spatial_features[:, None] + non_spatial_features) + 1e-6
-
-    # Convert similarities to distances
-    #distances = 1 / similarities
-    distances = euclidean_distances ** (non_spatial_features[:, None] + non_spatial_features)
+    # Compute the final distance matrix
+    # If the distance between two sectors is 0, the distance between them is 0
+    # Otherwise, raise the distance to the power of the sum of the non-spatial features
+    distances = np.where(
+        euclidean_distances == 0,
+        0,
+        euclidean_distances ** (non_spatial_features[:, None] + non_spatial_features)
+    )
 
     return distances
 
@@ -115,7 +131,7 @@ grid["cluster_id_agg_single"] = clustering.labels_
 
 # Let's test what happens when changing the min_sector_size
 # We do it with the avg agglomerative clustering, which has given the best results so far
-for min_sector_size in [0.07,0.08,0.09,0.1,0.11,0.12,0.15,0.2,0.25]:
+for min_sector_size in [0.07,0.08,0.09,0.1,0.11,0.12,0.15,0.2,0.25,0.4,0.5,1]:
     # Perform clustering with AgglomerativeClustering using average linkage
     clustering = AgglomerativeClustering(
         n_clusters=10, 

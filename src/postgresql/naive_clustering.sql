@@ -93,3 +93,15 @@ SELECT g.geom, ST_ClusterKMeans(g.geom, 5) over () as cluster_id
 FROM grid_intersections g;
 
 SELECT cluster_id, COUNT(cluster_id) FROM grid3D_clusters GROUP BY cluster_id;
+
+DO
+$$
+DECLARE
+    table_name text;
+BEGIN
+    FOR table_name IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public')
+    LOOP
+        EXECUTE format('GRANT ALL PRIVILEGES ON TABLE %I TO atm', table_name);
+    END LOOP;
+END;
+$$;
