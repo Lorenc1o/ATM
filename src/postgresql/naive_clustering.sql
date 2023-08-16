@@ -6,15 +6,27 @@ SELECT ST_MakeEnvelope(x, y, x + 0.2, y + 0.2, 4326) as geom
 FROM generate_series(-10.1, 4.9, 0.2) AS x, 
      generate_series(35.9, 43.9, 0.2) AS y;
 
+ALTER TABLE grid ADD COLUMN id SERIAL PRIMARY KEY;
+
 -- 2. Count intersections in each cell
 DROP TABLE IF EXISTS grid_intersections;
 
 CREATE TABLE grid_intersections AS 
-SELECT g.geom, COUNT(f.ECTRL) as intersection_count 
-FROM grid g 
-LEFT JOIN flights f 
-ON ST_Intersects(g.geom, f.Traj::geometry) 
-GROUP BY g.geom;
+SELECT g.id, g.geom, COUNT(*) - 1 as intersection_count 
+FROM grid g, flights f1, flights f2
+WHERE ST_Intersects(g.geom, f1.Traj::geometry) 
+	AND ST_Intersects(g.geom, f2.Traj::geometry) 
+	AND ST_Intersects(f1.Traj::geometry, f2.Traj::geometry)
+GROUP BY g.id, g.geom;
+
+INSERT INTO grid_intersections (geom, intersection_count)
+SELECT g.id, g.geom, 0 as intersection_count
+FROM grid g
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM grid_intersections gi
+    WHERE g.id = gi.id
+);
 
 -- 3. Cluster
 DROP TABLE IF EXISTS grid_clusters;
